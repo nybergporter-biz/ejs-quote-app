@@ -148,16 +148,12 @@ export default function QuoteBuilder({ route, navigate }) {
     [selectedItems, jobParams, landfill, settings, discount, additionalCharges],
   )
 
-  // What the same load would cost at the other facility (gate + item fees)
+  // What the same load would cost at the other facility (gate + item fees) —
+  // cheap math, no memo needed
   const otherLandfill = landfill === 'north' ? 'south' : 'north'
-  const otherDumpTotal = useMemo(() => {
-    const detail = dumpFeeDetail(pricing.estLbs, otherLandfill, settings, { inDistrict: false })
-    const disposal = itemDisposalFees(
-      selectedItems.map((i) => ({ itemId: i.id, qty: i.qty })),
-      otherLandfill,
-    )
-    return detail.fee + disposal
-  }, [pricing.estLbs, otherLandfill, settings, selectedItems])
+  const otherDumpTotal =
+    dumpFeeDetail(pricing.estLbs, otherLandfill, settings, { inDistrict: false }).fee +
+    itemDisposalFees(selectedItems.map((i) => ({ itemId: i.id, qty: i.qty })), otherLandfill)
   const dumpSavingsElsewhere = pricing.dump + pricing.disposal - otherDumpTotal
 
   // Items whose customer surcharge doesn't cover what the facility charges us per unit
