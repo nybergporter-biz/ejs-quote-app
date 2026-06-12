@@ -3,26 +3,39 @@ export const DEFAULT_SETTINGS = {
   RATE_PER_CY: 50,
   MIN_JOB: 89,
   DUMP_RATE_PER_TON: 36, // legacy fallback when no facility is chosen
-  LBS_PER_CY: 150,
+  LBS_PER_CY: 150, // density fallback for items without a per-unit weight
   HOURLY_RATE: 25,
   CREW_SIZE: 2,
   GAS_PER_MILE: 0.25,
   MILES_TO_DUMP: 15,
   RUSH_MULTIPLIER: 1.25,
-  // Utah County landfill out-of-district rates (June 2026 fee schedules)
-  NORTH_RATE_PER_TON: 83, // North Pointe Transfer Station, Lindon
-  SOUTH_RATE_PER_TON: 45, // South Utah Valley SWD, Spanish Fork
+  NORTH_RATE_PER_TON: 83, // North Pointe >1,000 lb out-of-district $/ton
+  SOUTH_RATE_PER_TON: 45, // SUVSWD large-load $/ton — ESTIMATE, verify at scale house
   WEIGH_FEE: 5, // North Pointe per-weigh fee
+  TRAILER_PAYLOAD_LBS: 2800, // single-axle payload guard — adjust to your trailer's rating
 }
 
 export const LANDFILLS = {
-  north: { key: 'north', name: 'North Pointe', place: 'Lindon', blurb: '$83/ton' },
-  south: { key: 'south', name: 'South Valley', place: 'Spanish Fork', blurb: '$45/ton' },
+  north: { key: 'north', name: 'North Pointe', place: 'Lindon', blurb: '$24 / $48 / $83·ton + $5' },
+  south: { key: 'south', name: 'South Valley', place: 'Springville', blurb: '$17 / $56 flat (est.)' },
 }
 
 /**
- * Per-item disposal fees each facility charges us (June-2026 fee schedules).
- * Keyed by item-library id. Items absent from a table cost nothing extra there.
+ * North Pointe "participating cities" — loads originating here may qualify
+ * for in-district rates (roughly half). Verify with the scale house before
+ * relying on it; the in-district toggle on a quote applies these rates.
+ */
+export const NP_MEMBER_CITIES = [
+  'orem', 'vineyard', 'pleasant grove', 'lindon', 'american fork',
+  'cedar hills', 'highland', 'lehi', 'saratoga springs',
+]
+export const isNpMemberCity = (city) => NP_MEMBER_CITIES.includes(String(city || '').trim().toLowerCase())
+
+/**
+ * Per-item disposal fees each facility charges us, from the posted fee
+ * schedules (npswssdut.gov, June 2026). North Pointe: mattresses $20,
+ * electronics $10/item, refrigerant extraction $15/unit, tires $12
+ * commercial. Keyed by item-library id; absent items cost nothing extra.
  */
 export const ITEM_DUMP_FEES = {
   north: {
@@ -30,11 +43,12 @@ export const ITEM_DUMP_FEES = {
     'boxspring-king': 20, 'boxspring-queen': 20, 'boxspring-twin': 20,
     'tv-sm': 10, 'tv-lg': 10, 'monitor': 10, 'computer': 10, 'printer': 10,
     'fridge-lg': 15, 'fridge-sm': 15, 'freezer': 15, 'ac-window': 15, 'ac-portable': 15,
-    'tire-no-rim': 5, 'tire-with-rim': 5,
+    'tire-no-rim': 12, 'tire-with-rim': 12,
   },
   south: {
+    'mattress-king': 20, 'mattress-queen': 20, 'mattress-full': 20, 'mattress-twin': 20,
     'tv-sm': 8, 'tv-lg': 12, 'monitor': 3,
-    'fridge-lg': 10, 'fridge-sm': 10, 'freezer': 10, 'ac-window': 10, 'ac-portable': 10,
+    'fridge-lg': 15, 'fridge-sm': 15, 'freezer': 15, 'ac-window': 15, 'ac-portable': 15,
     'tire-no-rim': 2, 'tire-with-rim': 5,
   },
 }
@@ -46,31 +60,70 @@ export function itemDisposalFees(items, landfill) {
 }
 
 /**
- * Out-of-district dump fee for a load, per the June-2026 fee schedules.
- * North Pointe: $24 flat ≤500 lbs · $48 flat 501–1,000 lbs · $83/ton above, + $5 weigh fee.
- * South Utah Valley: commercial loads billed by weight at $45/ton ($12 floor).
+ * Estimated load weight: per-item average weights when known, density
+ * fallback (LBS_PER_CY) for custom items that don't carry one.
  */
-export function dumpFee(totalCY, landfill, settings = DEFAULT_SETTINGS) {
-  const lbs = totalCY * (settings.LBS_PER_CY || 150)
-  const tons = lbs / 2000
-  if (landfill === 'south') {
-    return Math.max(tons * (settings.SOUTH_RATE_PER_TON ?? 45), 12)
-  }
-  if (landfill === 'north') {
-    const base = lbs <= 500 ? 24 : lbs <= 1000 ? 48 : tons * (settings.NORTH_RATE_PER_TON ?? 83)
-    return base + (settings.WEIGH_FEE ?? 5)
-  }
-  return Math.max(tons * (settings.DUMP_RATE_PER_TON || 36), 8)
+export function estimateLoadLbs(items, settings = DEFAULT_SETTINGS) {
+  const density = settings.LBS_PER_CY || 150
+  return (items || []).reduce(
+    (s, i) => s + (i.lbs != null ? i.lbs : (i.cy || 0) * density) * (i.qty || 1),
+    0,
+  )
 }
 
 /**
- * @param items  array of { cy, qty, surcharge }
- * @param jobParams { estHours, driveMinutes, distanceMiles, isRush }
+ * Gate-fee detail for an estimated load weight at a facility.
+ *
+ * North Pointe (npswssdut.gov, June 2026), + $5 weigh fee:
+ *   out-of-district: ≤500 lb $24 · 501–1,000 lb $48 · over $83/ton
+ *   in-district:     ≤500 lb $12 · 501–1,000 lb $24 · over $41.50/ton
+ * South Utah Valley (suvswd.org): ≤500 lb $17 ($12 in-district) ·
+ *   over 500 lb $56 flat ($46 in-district) for standard loads; big loads
+ *   estimated per-ton (SOUTH_RATE_PER_TON) — verify at the scale house.
+ *
+ * Returns { fee, label, savings } where savings (if present) describes the
+ * next-cheaper tier: { trimLbs, save }.
+ */
+export function dumpFeeDetail(lbs, landfill, settings = DEFAULT_SETTINGS, { inDistrict = false } = {}) {
+  const tons = lbs / 2000
+
+  if (landfill === 'north') {
+    const [t1, t2, perTon] = inDistrict ? [12, 24, 41.5] : [24, 48, settings.NORTH_RATE_PER_TON ?? 83]
+    const weigh = settings.WEIGH_FEE ?? 5
+    let base, label
+    if (lbs <= 500) { base = t1; label = '≤500 lb flat' }
+    else if (lbs <= 1000) { base = t2; label = '501–1,000 lb flat' }
+    else { base = tons * perTon; label = `$${perTon}/ton` }
+    const detail = { fee: base + weigh, label: label + (inDistrict ? ' · in-district' : '') }
+    // tier-boundary nudge: barely over a cheaper flat tier
+    if (lbs > 500 && lbs <= 575) detail.savings = { trimLbs: Math.ceil(lbs - 500), save: t2 - t1 }
+    else if (lbs > 1000 && lbs <= 1150) detail.savings = { trimLbs: Math.ceil(lbs - 1000), save: tons * perTon - t2 }
+    return detail
+  }
+
+  if (landfill === 'south') {
+    const [t1, t2] = inDistrict ? [12, 46] : [17, 56]
+    if (lbs <= 500) return { fee: t1, label: '≤500 lb flat' }
+    const fee = Math.max(t2, tons * (settings.SOUTH_RATE_PER_TON ?? 45))
+    return { fee, label: fee === t2 ? 'over 500 lb flat' : `~$${settings.SOUTH_RATE_PER_TON ?? 45}/ton (verify)` }
+  }
+
+  return { fee: Math.max(tons * (settings.DUMP_RATE_PER_TON || 36), 8), label: 'estimate' }
+}
+
+/** Gate fee only — convenience over dumpFeeDetail. Takes POUNDS. */
+export function dumpFee(lbs, landfill, settings = DEFAULT_SETTINGS, opts = {}) {
+  return dumpFeeDetail(lbs, landfill, settings, opts).fee
+}
+
+/**
+ * @param items  array of { cy, lbs, qty, surcharge }
+ * @param jobParams { estHours, driveMinutes, distanceMiles, isRush, landfill, inDistrict }
  * @param settings see DEFAULT_SETTINGS
  * @param extras { discount, additionalCharges: [{label, amount}] }
  */
 export function calcQuote(items, jobParams, settings = DEFAULT_SETTINGS, extras = {}) {
-  const { estHours = 1.5, driveMinutes = 20, distanceMiles = 10, isRush = false, landfill = null } = jobParams || {}
+  const { estHours = 1.5, driveMinutes = 20, distanceMiles = 10, isRush = false, landfill = null, inDistrict = false } = jobParams || {}
   const { discount = 0, additionalCharges = [] } = extras || {}
 
   const totalCY = items.reduce((s, i) => s + i.cy * i.qty, 0)
@@ -85,12 +138,15 @@ export function calcQuote(items, jobParams, settings = DEFAULT_SETTINGS, extras 
   const totalHours = estHours + (driveMinutes * 2) / 60
   const labor = totalHours * settings.CREW_SIZE * settings.HOURLY_RATE
   const gas = (distanceMiles + settings.MILES_TO_DUMP * 2) * settings.GAS_PER_MILE
-  const dump = dumpFee(totalCY, landfill, settings)
+  const estLbs = estimateLoadLbs(items, settings)
+  const dumpDetail = dumpFeeDetail(estLbs, landfill, settings, { inDistrict })
+  const dump = dumpDetail.fee
   const disposal = itemDisposalFees(items, landfill)
   const cost = labor + gas + dump + disposal
 
   return {
     totalCY,
+    estLbs,
     base,
     surcharges,
     additional,
@@ -99,9 +155,11 @@ export function calcQuote(items, jobParams, settings = DEFAULT_SETTINGS, extras 
     fillPct: Math.min((totalCY / settings.TRAILER_CY) * 100, 100),
     fillPctRaw: (totalCY / settings.TRAILER_CY) * 100,
     over: totalCY > settings.TRAILER_CY,
+    overweight: estLbs > (settings.TRAILER_PAYLOAD_LBS || 2800),
     labor,
     gas,
     dump,
+    dumpDetail,
     disposal,
     cost,
     profit: total - cost,

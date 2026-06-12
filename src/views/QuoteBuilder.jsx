@@ -10,7 +10,7 @@ import QuoteReveal from '../components/QuoteReveal'
 import PhotoDock from '../components/PhotoDock'
 import LeadBrief from '../components/LeadBrief'
 import { normalizePhotos } from '../lib/photos'
-import { calcQuote, fillTone, tierPrices, LANDFILLS, ITEM_DUMP_FEES } from '../lib/pricing'
+import { calcQuote, fillTone, tierPrices, LANDFILLS, ITEM_DUMP_FEES, dumpFeeDetail, itemDisposalFees, isNpMemberCity } from '../lib/pricing'
 import { parseCity, landfillFor } from '../lib/planner'
 import { formatCY, formatMoney, relativeDate } from '../lib/utils'
 import { shareQuotePdf } from '../lib/pdf'
@@ -140,13 +140,25 @@ export default function QuoteBuilder({ route, navigate }) {
 
   const pricing = useMemo(
     () => calcQuote(
-      selectedItems.map((i) => ({ itemId: i.id, cy: i.cy, qty: i.qty, surcharge: i.surcharge })),
+      selectedItems.map((i) => ({ itemId: i.id, cy: i.cy, lbs: i.lbs, qty: i.qty, surcharge: i.surcharge })),
       { ...jobParams, landfill },
       settings,
       { discount, additionalCharges },
     ),
     [selectedItems, jobParams, landfill, settings, discount, additionalCharges],
   )
+
+  // What the same load would cost at the other facility (gate + item fees)
+  const otherLandfill = landfill === 'north' ? 'south' : 'north'
+  const otherDumpTotal = useMemo(() => {
+    const detail = dumpFeeDetail(pricing.estLbs, otherLandfill, settings, { inDistrict: false })
+    const disposal = itemDisposalFees(
+      selectedItems.map((i) => ({ itemId: i.id, qty: i.qty })),
+      otherLandfill,
+    )
+    return detail.fee + disposal
+  }, [pricing.estLbs, otherLandfill, settings, selectedItems])
+  const dumpSavingsElsewhere = pricing.dump + pricing.disposal - otherDumpTotal
 
   // Items whose customer surcharge doesn't cover what the facility charges us per unit
   const underCovered = useMemo(() => {
@@ -694,11 +706,69 @@ export default function QuoteBuilder({ route, navigate }) {
             accent
           >
             <div className="space-y-2">
+              {/* Load weight + which fee tier it lands in */}
+              <div className="flex items-center justify-between" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--text2)' }}>⚖️ Est. load weight</span>
+                <span className="tabular" style={{ fontSize: 13, fontWeight: 800, color: pricing.overweight ? '#f0786b' : 'var(--text)' }}>
+                  ~{Math.round(pricing.estLbs).toLocaleString()} lb
+                  <span className="text-3" style={{ fontWeight: 600, marginLeft: 6, fontSize: 11 }}>{pricing.dumpDetail?.label}</span>
+                </span>
+              </div>
+              {pricing.overweight && (
+                <div style={{ fontSize: 12, color: '#f0786b', lineHeight: 1.5, padding: '2px 0' }}>
+                  ⚠ Over ~{(settings.TRAILER_PAYLOAD_LBS || 2800).toLocaleString()} lb — that's past a single-axle
+                  trailer's typical payload. Plan two trips or skip the heaviest items.
+                </div>
+              )}
+              {pricing.dumpDetail?.savings && (
+                <div style={{ fontSize: 12, color: '#e7a23d', lineHeight: 1.5, padding: '2px 0' }}>
+                  💡 Only ~{pricing.dumpDetail.savings.trimLbs} lb over the cheaper tier — leaving the lightest
+                  item off this load saves ~{formatMoney(pricing.dumpDetail.savings.save)} at the gate.
+                </div>
+              )}
+              {landfill === 'north' && isNpMemberCity(jobCity) && !jobParams.inDistrict && (
+                <button
+                  onClick={() => setJobParams((p) => ({ ...p, inDistrict: true }))}
+                  className="w-full text-left"
+                  style={{ fontSize: 12, color: 'var(--teal-lt)', lineHeight: 1.5, padding: '2px 0', background: 'none', border: 'none' }}
+                >
+                  💰 {jobCity} is a North Pointe member city — if the scale house honors in-district rates for
+                  this load, the gate fee is about half. Tap to price it in-district.
+                </button>
+              )}
+              {jobParams.inDistrict && (
+                <button
+                  onClick={() => setJobParams((p) => ({ ...p, inDistrict: false }))}
+                  className="w-full text-left"
+                  style={{ fontSize: 12, color: 'var(--teal-lt)', lineHeight: 1.5, padding: '2px 0', background: 'none', border: 'none' }}
+                >
+                  ✓ Priced at in-district rates — tap to switch back to out-of-district.
+                </button>
+              )}
               <CostRow label="Labor" value={pricing.labor} />
               <CostRow label="Gas" value={pricing.gas} />
               <CostRow label={`Dump fees · ${LANDFILLS[landfill]?.name || 'Dump'}`} value={pricing.dump} />
               {pricing.disposal > 0 && (
                 <CostRow label={`Item fees · ${LANDFILLS[landfill]?.name || 'Dump'}`} value={pricing.disposal} />
+              )}
+              {selectedItems.length > 0 && dumpSavingsElsewhere > 8 && (
+                <div style={{ fontSize: 12, color: '#e7a23d', lineHeight: 1.5, padding: '2px 0' }}>
+                  🗺 {LANDFILLS[otherLandfill].name} would run ~{formatMoney(dumpSavingsElsewhere)} less for this
+                  load (gate + item fees — drive time not included).
+                </div>
+              )}
+              {selectedItems.length > 0 && !additionalCharges.some((c) => c.label === 'Dump & disposal fees') && (
+                <button
+                  onClick={() => {
+                    const amount = Math.ceil((pricing.dump + pricing.disposal) / 5) * 5
+                    setAdditionalCharges((c) => [...c, { label: 'Dump & disposal fees', amount }])
+                    haptic.light()
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5"
+                  style={{ padding: '9px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, background: 'var(--surface2)', color: 'var(--teal-lt)', border: '1px dashed var(--border)' }}
+                >
+                  <Plus size={13} /> Bill dump & item fees on the quote ({formatMoney(Math.ceil((pricing.dump + pricing.disposal) / 5) * 5)})
+                </button>
               )}
               {underCovered.length > 0 && (
                 <div style={{ fontSize: 12, color: '#e7a23d', lineHeight: 1.5, padding: '4px 0' }}>
@@ -747,7 +817,7 @@ export default function QuoteBuilder({ route, navigate }) {
           })()}
           <div className="flex items-center gap-3">
             <div className="flex flex-col" style={{ minWidth: 64 }}>
-              <span className="micro-label" style={{ fontSize: 9 }}>{totalQty} items</span>
+              <span className="micro-label" style={{ fontSize: 9 }}>{totalQty} items · ~{Math.round(pricing.estLbs).toLocaleString()} lb</span>
               <span className="font-display tabular" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
                 {formatCY(pricing.totalCY)} CY
               </span>

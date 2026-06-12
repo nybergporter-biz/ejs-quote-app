@@ -90,6 +90,16 @@ export function AppProvider({ children }) {
 
   const visibleItems = useMemo(() => library.filter((i) => !i.hidden), [library])
 
+  // Backfill per-item weights into libraries saved before `lbs` existed —
+  // the dump-fee engine estimates load weight from these.
+  useEffect(() => {
+    if (library.some((i) => i.lbs == null)) {
+      const defaults = Object.fromEntries(ITEMS.map((i) => [i.id, i.lbs]))
+      setLibrary((lib) => lib.map((i) => (i.lbs == null && defaults[i.id] != null ? { ...i, lbs: defaults[i.id] } : i)))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const actions = useMemo(() => {
     return {
       // ---- settings / business ----
