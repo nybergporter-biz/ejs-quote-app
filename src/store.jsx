@@ -1,9 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useCloudSync } from './hooks/useCloudSync'
+import { useLeads } from './hooks/useLeads'
 import { DEFAULT_SETTINGS } from './lib/pricing'
 import { ITEMS, CATEGORIES } from './lib/itemLibrary'
 import { uploadPendingPhotos } from './lib/photos'
+import { splitName } from './lib/leads'
 import { quoteNumber, uid } from './lib/utils'
 
 export const ACCENTS = [
@@ -196,6 +198,30 @@ export function AppProvider({ children }) {
     { setSettings, setBusiness, setLibrary, setCategories, setQuotes, setCustomers, setSeq, setDeletedIds, setTeam },
   )
 
+  // ---- website leads (lead_requests table) ----
+  const leadsApi = useLeads(cloud.user, { soundOn: settings.leadSound !== false })
+
+  // "Build Quote" on a lead: link (or create) the customer profile, mark the
+  // lead converted, and hand back the customerId so the caller can navigate
+  // to the quote builder pre-filled. Ambiguous matches are resolved by the
+  // caller (picker UI) and passed in as existingCustomerId.
+  const convertLeadToQuote = useCallback((lead, existingCustomerId = null) => {
+    let customerId = existingCustomerId
+    if (!customerId) {
+      customerId = actions.upsertCustomer({
+        ...splitName(lead.name),
+        phone: lead.phone || '',
+        email: lead.email || '',
+        address: lead.service_address || '',
+        notes: lead.notes || '',
+        source: 'website',
+      })
+    }
+    leadsApi.updateLead(lead.id, { status: 'converted', customer_id: customerId })
+    return customerId
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadsApi.updateLead])
+
   // ---- automatic photo backup (Supabase Storage) ----
   // Local-first: photos live in localStorage; whenever we're signed in and
   // online, anything not yet uploaded gets pushed in the background.
@@ -226,6 +252,12 @@ export function AppProvider({ children }) {
     team,
     whoami,
     cloud,
+    leads: leadsApi.leads,
+    unreadLeadCount: leadsApi.unreadLeadCount,
+    fetchLeads: leadsApi.fetchLeads,
+    updateLead: leadsApi.updateLead,
+    updateLeadStatus: leadsApi.updateLeadStatus,
+    convertLeadToQuote,
     ...actions,
   }
 

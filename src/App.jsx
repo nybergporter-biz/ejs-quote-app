@@ -1,12 +1,13 @@
 import { lazy, Suspense, useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Home, Users, Settings as SettingsIcon, Plus, CalendarDays } from 'lucide-react'
+import { Home, Users, Settings as SettingsIcon, Plus, CalendarDays, Inbox } from 'lucide-react'
 import { AppProvider, useApp } from './store'
 import { ToastProvider } from './components/Toast'
 import { PageSkeleton } from './components/Skeleton'
 import { useDarkMode } from './hooks/useDarkMode'
 
 const Dashboard = lazy(() => import('./views/Dashboard'))
+const LeadsInbox = lazy(() => import('./views/LeadsInbox'))
 const QuoteBuilder = lazy(() => import('./views/QuoteBuilder'))
 const QuoteDetail = lazy(() => import('./views/QuoteDetail'))
 const CustomerList = lazy(() => import('./views/CustomerList'))
@@ -22,12 +23,14 @@ function PageFallback() {
 
 const NAV = [
   { key: 'dashboard', icon: Home, label: 'Home' },
+  { key: 'leads', icon: Inbox, label: 'Leads' },
   { key: 'schedule', icon: CalendarDays, label: 'Schedule' },
   { key: 'customers', icon: Users, label: 'Customers' },
   { key: 'settings', icon: SettingsIcon, label: 'Settings' },
 ]
 
 function BottomNav({ route, navigate }) {
+  const { unreadLeadCount } = useApp()
   return (
     <div
       className="fixed left-0 right-0 bottom-0 pb-safe"
@@ -45,7 +48,7 @@ function BottomNav({ route, navigate }) {
         }}
       >
         {NAV.slice(0, 2).map((n) => (
-          <NavItem key={n.key} n={n} active={route.view === n.key} onClick={() => navigate(n.key)} />
+          <NavItem key={n.key} n={n} active={route.view === n.key} onClick={() => navigate(n.key)} badge={n.key === 'leads' ? unreadLeadCount : 0} />
         ))}
 
         <motion.button
@@ -72,10 +75,10 @@ function BottomNav({ route, navigate }) {
   )
 }
 
-function NavItem({ n, active, onClick }) {
+function NavItem({ n, active, onClick, badge = 0 }) {
   const Icon = n.icon
   return (
-    <button onClick={onClick} className="relative flex flex-col items-center gap-1 px-4 py-1.5" style={{ minWidth: 64 }}>
+    <button onClick={onClick} className="relative flex flex-col items-center gap-1 px-2 py-1.5" style={{ minWidth: 52 }}>
       {active && (
         <motion.span
           layoutId="nav-pill"
@@ -84,7 +87,24 @@ function NavItem({ n, active, onClick }) {
           transition={{ type: 'spring', stiffness: 380, damping: 30 }}
         />
       )}
-      <Icon size={20} color={active ? 'var(--teal-lt)' : 'var(--text3)'} style={{ position: 'relative' }} />
+      <span style={{ position: 'relative' }}>
+        <Icon size={20} color={active ? 'var(--teal-lt)' : 'var(--text3)'} style={{ position: 'relative' }} />
+        {badge > 0 && (
+          <motion.span
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="tabular"
+            style={{
+              position: 'absolute', top: -5, right: -9, minWidth: 16, height: 16, padding: '0 4px',
+              borderRadius: 999, background: '#ff6b35', color: '#fff', fontSize: 9.5, fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)',
+              boxSizing: 'content-box',
+            }}
+          >
+            {badge > 9 ? '9+' : badge}
+          </motion.span>
+        )}
+      </span>
       <span style={{ position: 'relative', fontSize: 10.5, fontWeight: 600, color: active ? 'var(--teal-lt)' : 'var(--text3)' }}>
         {n.label}
       </span>
@@ -95,7 +115,14 @@ function NavItem({ n, active, onClick }) {
 function Shell() {
   const { setupDone, introSeen, completeIntro } = useApp()
   useDarkMode()
-  const [route, setRoute] = useState({ view: 'dashboard', params: {} })
+  // Push-notification taps land on /?view=leads — honor it as the initial view.
+  const [route, setRoute] = useState(() => {
+    try {
+      const view = new URLSearchParams(window.location.search).get('view')
+      if (view === 'leads') return { view: 'leads', params: {} }
+    } catch { /* ignore */ }
+    return { view: 'dashboard', params: {} }
+  })
 
   const navigate = useCallback((view, params = {}) => {
     setRoute({ view, params })
@@ -130,6 +157,8 @@ function Shell() {
         return <CustomerList route={route} navigate={navigate} />
       case 'customer':
         return <CustomerProfile route={route} navigate={navigate} />
+      case 'leads':
+        return <LeadsInbox route={route} navigate={navigate} />
       case 'schedule':
         return <Schedule route={route} navigate={navigate} />
       case 'settings':

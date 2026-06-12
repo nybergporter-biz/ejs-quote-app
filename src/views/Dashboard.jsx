@@ -1,6 +1,6 @@
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Sparkles, Search, FileText, TrendingUp, CheckCircle2 } from 'lucide-react'
+import { Sun, Moon, Sparkles, Search, FileText, TrendingUp, CheckCircle2, Inbox } from 'lucide-react'
 import { useApp } from '../store'
 import { useDarkMode } from '../hooks/useDarkMode'
 import EJSLogo from '../components/EJSLogo'
@@ -18,7 +18,7 @@ function monthKey(d) {
 }
 
 export default function Dashboard({ navigate }) {
-  const { quotes, business, team, whoami } = useApp()
+  const { quotes, business, team, whoami, leads, unreadLeadCount } = useApp()
   const { isDark, toggle } = useDarkMode()
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -78,11 +78,13 @@ export default function Dashboard({ navigate }) {
     const monthWon = monthDecided.filter((q) => q.status !== 'declined').length
     const winRate = monthDecided.length ? Math.round((monthWon / monthDecided.length) * 100) : null
 
+    const monthLeads = (leads || []).filter((l) => monthKey(l.created_at) === thisMonth).length
+
     return {
       monthQuotes: monthQuotes.length, booked: booked.length, revenue, months, hourlyRate,
-      timedCount: timed.length, lostCount: lost.length, topReason, avgCloseMs, winRate,
+      timedCount: timed.length, lostCount: lost.length, topReason, avgCloseMs, winRate, monthLeads,
     }
-  }, [quotes])
+  }, [quotes, leads])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -152,11 +154,45 @@ export default function Dashboard({ navigate }) {
 
       {/* ---------- Body ---------- */}
       <div style={{ padding: '0 16px', maxWidth: 560, margin: '0 auto' }}>
+        {/* New website leads — impossible to miss */}
+        {unreadLeadCount > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate('leads')}
+            className="w-full flex items-center gap-3 text-left"
+            style={{
+              marginTop: -16, position: 'relative', zIndex: 6, borderRadius: 16, padding: '14px 15px',
+              background: 'color-mix(in srgb, #ff6b35 12%, var(--surface))',
+              border: '1px solid rgba(255,107,53,0.5)',
+              boxShadow: '0 8px 28px rgba(255,107,53,0.25)',
+            }}
+          >
+            <span style={{ position: 'relative', display: 'flex' }}>
+              <Inbox size={22} color="#ff8c5a" />
+              <motion.span
+                animate={{ scale: [1, 1.5, 1], opacity: [0.9, 0.3, 0.9] }}
+                transition={{ repeat: Infinity, duration: 1.4 }}
+                style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 999, background: '#ff6b35' }}
+              />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 800, color: '#ff8c5a' }}>
+                {unreadLeadCount} new lead{unreadLeadCount > 1 ? 's' : ''} from your website
+              </div>
+              <div className="text-2" style={{ fontSize: 12 }}>Reach out fast — speed wins jobs</div>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#ff8c5a', flexShrink: 0 }}>View All →</span>
+          </motion.button>
+        )}
+
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-2.5" style={{ marginTop: -16, position: 'relative', zIndex: 5 }}>
+        <div className="grid grid-cols-2 gap-2.5" style={{ marginTop: unreadLeadCount > 0 ? 12 : -16, position: 'relative', zIndex: 5 }}>
           <StatCard icon={FileText} label="Quotes / mo" value={stats.monthQuotes} delay={100} />
           <StatCard icon={CheckCircle2} label="Booked" value={stats.booked} delay={200} />
           <StatCard icon={TrendingUp} label="Revenue" value={stats.revenue} money delay={300} />
+          <StatCard icon={Inbox} label="Leads / mo" value={stats.monthLeads} delay={400} />
         </div>
 
         {/* New Quote CTA */}
