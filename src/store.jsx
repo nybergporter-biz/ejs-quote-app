@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from './lib/pricing'
 import { ITEMS, CATEGORIES } from './lib/itemLibrary'
 import { uploadPendingPhotos } from './lib/photos'
 import { splitName } from './lib/leads'
+import { publishBookedSlot, removeBookedSlot } from './lib/bookedSlots'
 import { quoteNumber, uid } from './lib/utils'
 
 export const ACCENTS = [
@@ -156,15 +157,29 @@ export function AppProvider({ children }) {
         setQuotes((list) => list.map((x) => (x.id === id
           ? { ...x, paid: paid ? new Date().toISOString() : null, paidMethod: paid ? method : null, updatedAt: new Date().toISOString() }
           : x))),
-      scheduleQuote: (id, { date, city, plannedCY }) =>
+      scheduleQuote: (id, { date, city, plannedCY, startTime = null, durationHours = null }) => {
         setQuotes((list) => list.map((x) => (x.id === id
-          ? { ...x, scheduledDate: date || null, city: city ?? x.city, plannedCY: plannedCY ?? x.plannedCY ?? null, updatedAt: new Date().toISOString() }
-          : x))),
-      unscheduleQuote: (id) =>
-        setQuotes((list) => list.map((x) => (x.id === id ? { ...x, scheduledDate: null, updatedAt: new Date().toISOString() } : x))),
+          ? {
+              ...x,
+              scheduledDate: date || null,
+              scheduledTime: startTime,
+              scheduledHours: durationHours,
+              city: city ?? x.city,
+              plannedCY: plannedCY ?? x.plannedCY ?? null,
+              updatedAt: new Date().toISOString(),
+            }
+          : x)))
+        // publish/clear the busy window so the website stops offering it
+        publishBookedSlot(id, date, startTime, durationHours || 2)
+      },
+      unscheduleQuote: (id) => {
+        setQuotes((list) => list.map((x) => (x.id === id ? { ...x, scheduledDate: null, scheduledTime: null, updatedAt: new Date().toISOString() } : x)))
+        removeBookedSlot(id)
+      },
       deleteQuote: (id) => {
         setQuotes((list) => list.filter((x) => x.id !== id))
         setDeletedIds((d) => (d.includes(id) ? d : [...d, id]))
+        removeBookedSlot(id)
       },
 
       // ---- team ----
@@ -213,7 +228,7 @@ export function AppProvider({ children }) {
         phone: lead.phone || '',
         email: lead.email || '',
         address: lead.service_address || '',
-        notes: lead.notes || '',
+        notes: [lead.items_description, lead.notes].filter(Boolean).join(' — '),
         source: 'website',
       })
     }

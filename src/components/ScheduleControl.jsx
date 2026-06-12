@@ -3,7 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { CalendarDays, X } from 'lucide-react'
 import { useApp } from '../store'
 import { parseCity, suggestDays } from '../lib/planner'
+import { prettyTime } from '../lib/bookedSlots'
 import { formatCY } from '../lib/utils'
+
+// Arrival options every 30 min, 7:00 AM – 7:00 PM (wider than website hours —
+// Porter can book outside them for special requests)
+const TIME_OPTIONS = []
+for (let t = 7 * 60; t <= 19 * 60; t += 30) {
+  const v = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+  TIME_OPTIONS.push(v)
+}
+const DURATIONS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8]
 
 function todayISO() {
   const d = new Date()
@@ -22,6 +32,10 @@ export default function ScheduleControl({ quote }) {
   const [date, setDate] = useState(quote.scheduledDate || todayISO())
   const [city, setCity] = useState(quote.city || parseCity(quote.customer?.address || ''))
   const [cy, setCy] = useState(quote.plannedCY ?? quote.pricing?.totalCY ?? 0)
+  const [time, setTime] = useState(quote.scheduledTime || '')
+  const [hours, setHours] = useState(
+    quote.scheduledHours || Math.min(8, Math.max(1, Math.round((quote.jobParams?.estHours || 2) * 2) / 2)),
+  )
 
   const suggestions = useMemo(
     () => suggestDays({ ...quote, city, plannedCY: cy }, app.quotes, app.settings, todayISO()),
@@ -33,7 +47,10 @@ export default function ScheduleControl({ quote }) {
     return `${r} trailer${r === 1 ? '' : 's'}`
   }
 
-  const save = () => { app.scheduleQuote(quote.id, { date, city, plannedCY: Number(cy) }); setOpen(false) }
+  const save = () => {
+    app.scheduleQuote(quote.id, { date, city, plannedCY: Number(cy), startTime: time || null, durationHours: time ? Number(hours) : null })
+    setOpen(false)
+  }
   const remove = () => { app.unscheduleQuote(quote.id); setOpen(false) }
 
   return (
@@ -48,7 +65,9 @@ export default function ScheduleControl({ quote }) {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
-            {quote.scheduledDate ? `Scheduled · ${prettyDate(quote.scheduledDate)}` : 'Schedule this job'}
+            {quote.scheduledDate
+              ? `Scheduled · ${prettyDate(quote.scheduledDate)}${quote.scheduledTime ? ` · ${prettyTime(quote.scheduledTime)}` : ''}`
+              : 'Schedule this job'}
           </div>
           <div className="text-3" style={{ fontSize: 12 }}>{quote.city || city || 'Set a date & city'}</div>
         </div>
@@ -89,6 +108,26 @@ export default function ScheduleControl({ quote }) {
                 <span className="micro-label" style={{ display: 'block', marginBottom: 6 }}>City</span>
                 <input className="field" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Saratoga Springs" />
               </label>
+              <div className="grid grid-cols-2 gap-2.5" style={{ marginBottom: 12 }}>
+                <label className="block">
+                  <span className="micro-label" style={{ display: 'block', marginBottom: 6 }}>Arrival time</span>
+                  <select className="field" value={time} onChange={(e) => setTime(e.target.value)}>
+                    <option value="">No set time</option>
+                    {TIME_OPTIONS.map((t) => <option key={t} value={t}>{prettyTime(t)}</option>)}
+                  </select>
+                </label>
+                <label className="block" style={{ opacity: time ? 1 : 0.45 }}>
+                  <span className="micro-label" style={{ display: 'block', marginBottom: 6 }}>Duration</span>
+                  <select className="field" value={hours} onChange={(e) => setHours(e.target.value)} disabled={!time}>
+                    {DURATIONS.map((d) => <option key={d} value={d}>{d} hr{d === 1 ? '' : 's'}</option>)}
+                  </select>
+                </label>
+              </div>
+              {time && (
+                <div className="text-3" style={{ fontSize: 11.5, marginTop: -6, marginBottom: 12 }}>
+                  The website will stop offering {prettyTime(time)} on this day to new customers.
+                </div>
+              )}
               <div style={{ marginBottom: 16 }}>
                 <span className="micro-label" style={{ display: 'block', marginBottom: 6 }}>Trailer space · {fulls(Number(cy) || 0)}</span>
                 <div className="flex items-center" style={{ background: 'var(--surface2)', borderRadius: 12, border: '1px solid var(--border)' }}>

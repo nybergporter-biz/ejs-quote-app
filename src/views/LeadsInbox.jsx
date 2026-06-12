@@ -201,8 +201,9 @@ function LeadCard({ lead, onBuildQuote, onSendPrice, onContacted, onArchive, onP
       exit={{ opacity: 0, x: -80, transition: { duration: 0.18 } }}
       style={{ position: 'relative' }}
     >
-      {/* archive affordance revealed behind the card on swipe */}
-      <motion.div style={{ opacity: archiveHint, position: 'absolute', inset: 0, borderRadius: 18, background: 'rgba(192,57,43,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 18 }}>
+      {/* archive affordance revealed behind the card on swipe — decorative only,
+          must never intercept taps meant for the card (it sits above static content) */}
+      <motion.div style={{ opacity: archiveHint, pointerEvents: 'none', position: 'absolute', inset: 0, borderRadius: 18, background: 'rgba(192,57,43,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 18 }}>
         <span style={{ color: '#f08a7e', fontWeight: 700, fontSize: 13 }}>Archive</span>
       </motion.div>
       <motion.div
@@ -210,7 +211,7 @@ function LeadCard({ lead, onBuildQuote, onSendPrice, onContacted, onArchive, onP
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={{ left: 0.5, right: 0.05 }}
-        style={{ x, borderRadius: 18, padding: 16, borderLeft: isNew ? '3px solid #ff6b35' : '3px solid transparent' }}
+        style={{ x, position: 'relative', zIndex: 1, borderRadius: 18, padding: 16, borderLeft: isNew ? '3px solid #ff6b35' : '3px solid transparent' }}
         onDragEnd={(_, info) => { if (info.offset.x < -110) onArchive() }}
       >
         {/* top row: name + status */}
@@ -249,6 +250,14 @@ function LeadCard({ lead, onBuildQuote, onSendPrice, onContacted, onArchive, onP
           {lead.volume_estimate && <Chip accent>{lead.volume_estimate}</Chip>}
           {preferred && <Chip>🗓 {preferred}</Chip>}
         </div>
+
+        {lead.items_description && (
+          <div
+            style={{ fontSize: 13, marginTop: 8, color: 'var(--text)', fontWeight: 500, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+          >
+            🗑 {lead.items_description}
+          </div>
+        )}
 
         {lead.service_address && (
           <div className="text-2" style={{ fontSize: 12.5, marginTop: 8 }}>📍 {lead.service_address}</div>
