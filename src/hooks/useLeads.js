@@ -60,9 +60,9 @@ async function showLeadNotification(title, body) {
 export function useLeads(user, { soundOn = true } = {}) {
   const [leads, setLeads] = useLocalStorage('ejs.leads', [])
   const leadsRef = useRef(leads)
-  leadsRef.current = leads
   const soundRef = useRef(soundOn)
-  soundRef.current = soundOn
+  useEffect(() => { leadsRef.current = leads }, [leads])
+  useEffect(() => { soundRef.current = soundOn }, [soundOn])
 
   const notifyNew = useCallback((lead) => {
     showLeadNotification(

@@ -138,14 +138,12 @@ export default function QuoteBuilder({ route, navigate }) {
   const suggestedLandfill = landfillFor(jobCity)
   const landfill = jobParams.landfill || suggestedLandfill
 
-  const pricing = useMemo(
-    () => calcQuote(
-      selectedItems.map((i) => ({ itemId: i.id, cy: i.cy, lbs: i.lbs, qty: i.qty, surcharge: i.surcharge })),
-      { ...jobParams, landfill },
-      settings,
-      { discount, additionalCharges },
-    ),
-    [selectedItems, jobParams, landfill, settings, discount, additionalCharges],
+  // Cheap enough to run every render — the React Compiler memoizes it automatically.
+  const pricing = calcQuote(
+    selectedItems.map((i) => ({ itemId: i.id, cy: i.cy, lbs: i.lbs, qty: i.qty, surcharge: i.surcharge })),
+    { ...jobParams, landfill },
+    settings,
+    { discount, additionalCharges },
   )
 
   // What the same load would cost at the other facility (gate + item fees) —
