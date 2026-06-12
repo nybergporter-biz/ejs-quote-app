@@ -8,6 +8,7 @@ import ItemCard from '../components/ItemCard'
 import AnimatedNumber from '../components/AnimatedNumber'
 import QuoteReveal from '../components/QuoteReveal'
 import PhotoDock from '../components/PhotoDock'
+import LeadBrief from '../components/LeadBrief'
 import { normalizePhotos } from '../lib/photos'
 import { calcQuote, fillTone, tierPrices, LANDFILLS, ITEM_DUMP_FEES } from '../lib/pricing'
 import { parseCity, landfillFor } from '../lib/planner'
@@ -33,6 +34,11 @@ export default function QuoteBuilder({ route, navigate }) {
   // Pre-fill the customer when starting a quote from a customer profile.
   const prefillCustomer = route?.params?.customerId
     ? app.customers.find((c) => c.id === route.params.customerId)
+    : null
+  // Coming from a website lead ("Build Quote") → pin their full request as a
+  // reference panel: notes, items, photos, preferred window.
+  const sourceLead = route?.params?.leadId
+    ? (app.leads || []).find((l) => l.id === route.params.leadId)
     : null
   const blankCustomer = { firstName: '', lastName: '', phone: '', email: '', address: '' }
 
@@ -296,6 +302,9 @@ export default function QuoteBuilder({ route, navigate }) {
 
       {/* ---------- Body ---------- */}
       <div style={{ padding: '4px 16px 0', maxWidth: 560, margin: '0 auto' }}>
+        {/* Everything the customer sent from the website, for reference while pricing */}
+        {sourceLead && <LeadBrief lead={sourceLead} />}
+
         {/* Resume unsaved draft */}
         {resumeDraft && Object.keys(qtyMap).length === 0 && (
           <motion.div
