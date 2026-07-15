@@ -20,7 +20,7 @@ export const ACCENTS = [
 
 const DEFAULT_BUSINESS = {
   companyName: 'Elite Junk Solutions',
-  phone: '(801) 555-0142',
+  phone: '(385) 441-5090',
   email: 'hello@elitejunkut.com',
   website: 'elitejunkut.com',
   ownerName: 'Porter',

@@ -34,20 +34,41 @@ function drawBadge(doc, x, y, w) {
   doc.roundedRect(x + w * 0.12, y + h * 0.56, w * 0.76, h * 0.16, 1, 1, 'F')
 }
 
-export function buildQuotePdf(quote, business = {}, settings = {}) {
+/* Convert any image data-URL to a PNG data-URL via canvas (handles PNG/JPEG/WebP) */
+function toPng(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => resolve(null)
+    img.src = dataUrl
+  })
+}
+
+export async function buildQuotePdf(quote, business = {}, settings = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const M = 40
   let y = M
 
   const company = business.companyName || 'Elite Junk Solutions'
-  const phone = business.phone || ''
+  const phone = business.phone || '(385) 441-5090'
   const email = business.email || ''
   const website = business.website || ''
   const validDays = settings.validDays || 7
 
   // ---------- Header ----------
-  drawBadge(doc, M, y, 46)
+  const logoData = business.logo ? await toPng(business.logo) : null
+  if (logoData) {
+    doc.addImage(logoData, 'PNG', M, y, 46, 46)
+  } else {
+    drawBadge(doc, M, y, 46)
+  }
   doc.setTextColor(...INK)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(20)
@@ -317,13 +338,13 @@ function trailerWords(pct) {
   return 'a full trailer'
 }
 
-export function downloadQuotePdf(quote, business, settings) {
-  const doc = buildQuotePdf(quote, business, settings)
+export async function downloadQuotePdf(quote, business, settings) {
+  const doc = await buildQuotePdf(quote, business, settings)
   doc.save(`${quote.id || 'quote'}.pdf`)
 }
 
 export async function shareQuotePdf(quote, business, settings) {
-  const doc = buildQuotePdf(quote, business, settings)
+  const doc = await buildQuotePdf(quote, business, settings)
   const blob = doc.output('blob')
   const file = new File([blob], `${quote.id || 'quote'}.pdf`, { type: 'application/pdf' })
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
